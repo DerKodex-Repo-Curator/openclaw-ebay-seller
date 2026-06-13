@@ -15,6 +15,7 @@ import { getOrders, getOrder } from "./fulfillment.js";
 import { getBusinessPolicies } from "./account.js";
 import {
   runSoftGated,
+  runGated,
   confirmPending,
   type GateConfig,
   type MutationRegistry,
@@ -29,6 +30,13 @@ import {
   createShippingFulfillment,
   type ShippingFulfillmentInput,
 } from "./fulfillment-write.js";
+import {
+  updateOffer,
+  publishOffer,
+  withdrawOffer,
+  getOfferStatus,
+  type UpdateOfferInput,
+} from "./offer-write.js";
 import type { SellApiConfig } from "./api.js";
 
 interface PluginConfig {
@@ -67,6 +75,33 @@ const MUTATIONS: MutationRegistry = {
     const r = await createShippingFulfillment(config, input);
     return {
       result: r.data ?? { orderId: input.orderId, status: "fulfillment_created" },
+      status: r.status,
+      ebayRequestId: r.requestId,
+    };
+  },
+  update_offer: async (params, config) => {
+    const input = params as UpdateOfferInput;
+    const r = await updateOffer(config, input);
+    return {
+      result: r.data ?? { offerId: input.offerId, status: "updated" },
+      status: r.status,
+      ebayRequestId: r.requestId,
+    };
+  },
+  publish_offer: async (params, config) => {
+    const input = params as { offerId: string };
+    const r = await publishOffer(config, input);
+    return {
+      result: r.data ?? { offerId: input.offerId, status: "published" },
+      status: r.status,
+      ebayRequestId: r.requestId,
+    };
+  },
+  withdraw_offer: async (params, config) => {
+    const input = params as { offerId: string };
+    const r = await withdrawOffer(config, input);
+    return {
+      result: r.data ?? { offerId: input.offerId, status: "withdrawn" },
       status: r.status,
       ebayRequestId: r.requestId,
     };
@@ -537,6 +572,97 @@ export default defineToolPlugin({
               trackingNumber: params.trackingNumber,
               shippingCarrierCode: params.shippingCarrierCode,
             } satisfies ShippingFulfillmentInput,
+          },
+          MUTATIONS
+        );
+      },
+    }),
+    tool({
+      name: "ebay_seller_update_offer",
+      label: "Update eBay Offer",
+      description:
+        "UPDATE an existing offer's fields (price, quantity, description, category, policies). Call this — do not narrate — when the operator wants to change a listing/offer (e.g. 'change the price of offer X to $200', 'update the quantity', 'lower the price'). GATING IS CONDITIONAL: if the offer is still a draft (unpublished), the change is soft-gated (applies immediately). If the offer is already PUBLISHED (live listing), the change is HARD-gated — it returns { status: 'pending_approval', token, summary } and you must relay the summary and wait for the operator to confirm before calling ebay_seller_confirm_pending. Get the offerId from ebay_seller_get_offers.",
+      parameters: Type.Object({
+        offerId: Type.String({ description: "The offer id to update." }),
+        price: Type.Optional(
+          Type.Number({ minimum: 0, description: "New price." })
+        ),
+        currency: Type.Optional(Type.String({ description: "Currency; defaults USD." })),
+        availableQuantity: Type.Optional(
+          Type.Integer({ minimum: 0, description: "New available quantity." })
+        ),
+        listingDescription: Type.Optional(
+          Type.String({ description: "New listing description." })
+        ),
+        categoryId: Type.Optional(Type.String({ description: "New leaf category id." })),
+        paymentPolicyId: Type.Optional(Type.String()),
+        returnPolicyId: Type.Optional(Type.String()),
+        fulfillmentPolicyId: Type.Optional(Type.String()),
+      }),
+      async execute(params, config) {
+        const input: UpdateOfferInput = {
+          offerId: params.offerId,
+          price: params.price,
+          currency: params.currency,
+          availableQuantity: params.availableQuantity,
+          listingDescription: params.listingDescription,
+          categoryId: params.categoryId,
+          paymentPolicyId: params.paymentPolicyId,
+          returnPolicyId: params.returnPolicyId,
+          fulfillmentPolicyId: params.fulfillmentPolicyId,
+        };
+        // Route by published-state: live offers are hard-gated, drafts soft.
+        // An unknown status fails safe to the hard gate.
+        const status = await getOfferStatus(apiConfig(config), params.offerId);
+        const isLive = status === "PUBLISHED" || status === "UNKNOWN";
+        const descriptor = {
+          toolName: "ebay_seller_update_offer",
+          action: "update_offer",
+          summary: `Update offer '${params.offerId}'${params.price !== undefined ? ` price→${params.currency ?? "USD"} ${params.price}` : ""}${params.availableQuantity !== undefined ? ` qty→${params.availableQuantity}` : ""}${isLive ? " — offer is LIVE" : " (draft)"}`,
+          params: input,
+        };
+        return isLive
+          ? runGated(gateConfig(config), descriptor, MUTATIONS)
+          : runSoftGated(gateConfig(config), descriptor, MUTATIONS);
+      },
+    }),
+    tool({
+      name: "ebay_seller_publish_offer",
+      label: "Publish eBay Offer (go LIVE)",
+      description:
+        "PUBLISH an offer — this makes it a LIVE eBay listing visible to buyers. HARD-GATED: this tool does NOT publish immediately. It returns { status: 'pending_approval', token, summary }. You MUST relay the summary to the operator and WAIT — do NOT call ebay_seller_confirm_pending yourself. Only after the operator explicitly says to confirm/approve/go ahead do you call ebay_seller_confirm_pending with the token. Call this tool when the operator says to publish/list/go live with an offer; get the offerId from ebay_seller_create_offer or ebay_seller_get_offers. (If autoApprove is enabled in config, it publishes immediately — but default is the two-step flow.)",
+      parameters: Type.Object({
+        offerId: Type.String({ description: "The draft offer id to publish (go live)." }),
+      }),
+      async execute(params, config) {
+        return runGated(
+          gateConfig(config),
+          {
+            toolName: "ebay_seller_publish_offer",
+            action: "publish_offer",
+            summary: `PUBLISH offer '${params.offerId}' — this creates a LIVE eBay listing visible to buyers`,
+            params: { offerId: params.offerId },
+          },
+          MUTATIONS
+        );
+      },
+    }),
+    tool({
+      name: "ebay_seller_withdraw_offer",
+      label: "Withdraw eBay Offer (end listing)",
+      description:
+        "WITHDRAW a published offer — this ENDS the live eBay listing so buyers can no longer purchase it. HARD-GATED: does NOT act immediately. Returns { status: 'pending_approval', token, summary }. Relay the summary and WAIT — do NOT call ebay_seller_confirm_pending yourself; only after the operator explicitly confirms do you call it with the token. Call this when the operator says to end/withdraw/take down/unpublish a listing; get the offerId from ebay_seller_get_offers.",
+      parameters: Type.Object({
+        offerId: Type.String({ description: "The published offer id to withdraw (end)." }),
+      }),
+      async execute(params, config) {
+        return runGated(
+          gateConfig(config),
+          {
+            toolName: "ebay_seller_withdraw_offer",
+            action: "withdraw_offer",
+            summary: `WITHDRAW offer '${params.offerId}' — this ENDS the live eBay listing`,
+            params: { offerId: params.offerId },
           },
           MUTATIONS
         );

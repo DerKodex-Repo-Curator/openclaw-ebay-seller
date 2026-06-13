@@ -73,6 +73,9 @@
       "ebay_seller_create_or_update_inventory_item",
       "ebay_seller_create_offer",
       "ebay_seller_create_shipping_fulfillment",
+      "ebay_seller_update_offer",
+      "ebay_seller_publish_offer",
+      "ebay_seller_withdraw_offer",
       "ebay_seller_confirm_pending"
     ]
   }

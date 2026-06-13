@@ -15,12 +15,12 @@ function collectTools(): ToolDef[] {
   return meta.tools as ToolDef[];
 }
 
-describe("plugin surface (S5 — reads + gate + soft writes)", () => {
+describe("plugin surface (S6 — full v0.1 tool surface)", () => {
   it("has the expected plugin id", () => {
     expect((plugin as { id: string }).id).toBe("tangleclaw-ebay-seller");
   });
 
-  it("registers all read, soft-write, and gate tools", () => {
+  it("registers the full 16-tool surface", () => {
     const names = collectTools()
       .map((t) => t.name)
       .sort();
@@ -38,6 +38,9 @@ describe("plugin surface (S5 — reads + gate + soft writes)", () => {
       "ebay_seller_get_order",
       "ebay_seller_get_orders",
       "ebay_seller_list_inventory_items",
+      "ebay_seller_publish_offer",
+      "ebay_seller_update_offer",
+      "ebay_seller_withdraw_offer",
     ]);
   });
 

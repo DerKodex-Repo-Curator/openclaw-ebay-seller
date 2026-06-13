@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **S6 — hard-gated write tools (full v0.1 surface, 16 tools).**
+  `ebay_seller_publish_offer` (makes an offer a LIVE listing) and
+  `ebay_seller_withdraw_offer` (ends a live listing) are hard-gated: they return
+  `{ status: 'pending_approval', token, summary }` and only execute via
+  `confirm_pending` (or immediately when `autoApprove=true`).
+  `ebay_seller_update_offer` is **conditionally gated** — it reads the offer's
+  published state and routes to the soft gate (draft) or hard gate (live).
+- **`src/offer-write.ts`** — PATCH/publish/withdraw client + `getOfferStatus`
+  (an unknown status fails safe to the hard gate). Executors registered in the
+  gate's `MUTATIONS` registry.
+- **Tests:** +7 (97 total) including the core safety property end-to-end:
+  `publish_offer` does NOT publish on the first call, publishes exactly once
+  only after `confirm_pending`; `autoApprove=true` publishes immediately;
+  PATCH-only-provided-fields; publish/withdraw endpoint routing.
+
 - **S5 — soft-gated write tools.** Three writes that execute immediately and are
   audit-logged (no approval step — they don't touch live listings or money):
   `ebay_seller_create_or_update_inventory_item` (idempotent PUT — re-sending a
