@@ -66,7 +66,10 @@
       "ebay_seller_auth_status",
       "ebay_seller_list_inventory_items",
       "ebay_seller_get_inventory_item",
-      "ebay_seller_get_offers"
+      "ebay_seller_get_offers",
+      "ebay_seller_get_orders",
+      "ebay_seller_get_order",
+      "ebay_seller_get_business_policies"
     ]
   }
 }

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **S3 — fulfillment + account read tools.** Three tools:
+  `ebay_seller_get_orders` (orders/sales, eBay filter syntax, paged),
+  `ebay_seller_get_order` (one order by id), and
+  `ebay_seller_get_business_policies` (payment + return + fulfillment policies
+  for a marketplace, fetched in parallel and grouped — the ids a published
+  offer references).
+- **`src/fulfillment.ts`** (Sell Fulfillment read client) + **`src/account.ts`**
+  (Sell Account policy reads) over the shared `api.ts` client.
+- **Tests:** +5 (57 total) — order filter/paging query construction, order-id
+  path encoding, the parallel three-policy fetch + grouping, and eBay-error
+  surfacing when a policy call fails (e.g. not opted into Business Policies).
+- **Compliance note:** order records carry buyer PII. The plugin reads but does
+  not persist them; once used against real orders this triggers eBay's
+  Marketplace Account Deletion notification obligation (see build plan's
+  deletion-endpoint note).
+
 - **S2 — inventory read tools.** Three tools: `ebay_seller_list_inventory_items`
   (SKU-level product records, paged, empty account → total 0),
   `ebay_seller_get_inventory_item` (one item by SKU), and

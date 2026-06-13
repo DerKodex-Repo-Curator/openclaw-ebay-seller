@@ -15,12 +15,12 @@ function collectTools(): ToolDef[] {
   return meta.tools as ToolDef[];
 }
 
-describe("plugin surface (S2 — auth + inventory reads)", () => {
+describe("plugin surface (S3 — auth + inventory + fulfillment/account reads)", () => {
   it("has the expected plugin id", () => {
     expect((plugin as { id: string }).id).toBe("tangleclaw-ebay-seller");
   });
 
-  it("registers the auth + inventory-read tools", () => {
+  it("registers all read tools across auth, inventory, fulfillment, account", () => {
     const names = collectTools()
       .map((t) => t.name)
       .sort();
@@ -28,8 +28,11 @@ describe("plugin surface (S2 — auth + inventory reads)", () => {
       "ebay_seller_auth_callback",
       "ebay_seller_auth_start",
       "ebay_seller_auth_status",
+      "ebay_seller_get_business_policies",
       "ebay_seller_get_inventory_item",
       "ebay_seller_get_offers",
+      "ebay_seller_get_order",
+      "ebay_seller_get_orders",
       "ebay_seller_list_inventory_items",
     ]);
   });

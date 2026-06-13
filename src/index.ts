@@ -11,6 +11,8 @@ import {
   getInventoryItem,
   getOffers,
 } from "./inventory.js";
+import { getOrders, getOrder } from "./fulfillment.js";
+import { getBusinessPolicies } from "./account.js";
 import type { SellApiConfig } from "./api.js";
 
 interface PluginConfig {
@@ -241,6 +243,76 @@ export default defineToolPlugin({
           limit: params.limit,
           offset: params.offset,
         });
+      },
+    }),
+    tool({
+      name: "ebay_seller_get_orders",
+      label: "List eBay Orders",
+      description:
+        "LIST / SHOW / READ the seller's eBay orders (sales). Call this — do not narrate — when the operator asks: show my orders, what sold, recent sales, what do I need to ship, unfulfilled orders, orders from the last week. Returns a page of orders plus `total`. Each order has line items, pricing, fulfillment status, and buyer/shipping details. Use `filter` for eBay's order filter syntax (e.g. creationdate range, or orderfulfillmentstatus:{NOT_STARTED|IN_PROGRESS} for what still needs shipping). NOTE: order data includes buyer personal information — handle accordingly.",
+      parameters: Type.Object({
+        filter: Type.Optional(
+          Type.String({
+            description:
+              "eBay order filter expression. Examples: 'orderfulfillmentstatus:{NOT_STARTED|IN_PROGRESS}' (unshipped), 'creationdate:[2026-06-01T00:00:00.000Z..]' (since a date). Omit for all recent orders.",
+          })
+        ),
+        limit: Type.Optional(
+          Type.Integer({
+            minimum: 1,
+            maximum: 200,
+            default: 50,
+            description: "Orders per page (1-200). Default 50.",
+          })
+        ),
+        offset: Type.Optional(
+          Type.Integer({
+            minimum: 0,
+            default: 0,
+            description: "Pagination offset (default 0).",
+          })
+        ),
+      }),
+      async execute(params, config) {
+        return getOrders(apiConfig(config), {
+          filter: params.filter,
+          limit: params.limit,
+          offset: params.offset,
+        });
+      },
+    }),
+    tool({
+      name: "ebay_seller_get_order",
+      label: "Get eBay Order",
+      description:
+        "READ / VIEW / FETCH one eBay order in full by its order id. Call this — do not narrate — when the operator asks to see / view / get details on a specific order, or references an order id. Returns the complete order: line items, pricing/taxes, payment + fulfillment status, shipping address, and buyer info. Get the order id from ebay_seller_get_orders. NOTE: includes buyer personal information.",
+      parameters: Type.Object({
+        orderId: Type.String({
+          description:
+            "The eBay order id (from a get_orders result, e.g. '12-34567-89012').",
+        }),
+      }),
+      async execute(params, config) {
+        return getOrder(apiConfig(config), { orderId: params.orderId });
+      },
+    }),
+    tool({
+      name: "ebay_seller_get_business_policies",
+      label: "Get eBay Business Policies",
+      description:
+        "READ / SHOW / LIST the seller's eBay business policies — payment, return, and fulfillment (shipping) — for a marketplace, all in one call. Call this — do not narrate — when the operator asks: show my business policies, what shipping/return/payment policies do I have, list my eBay policies, what's my policy id for X. Returns the three policy sets grouped. These policy ids are what a published offer references, so this is a prerequisite for the listing-creation tools (later). Requires the seller to be opted into eBay's Business Policies program; if not, eBay's error is surfaced per policy type.",
+      parameters: Type.Object({
+        marketplaceId: Type.Optional(
+          Type.String({
+            description:
+              "eBay marketplace id (e.g., EBAY_US, EBAY_GB). Defaults to the plugin's defaultMarketplaceId.",
+          })
+        ),
+      }),
+      async execute(params, config) {
+        const marketplaceId =
+          params.marketplaceId ?? config.defaultMarketplaceId ?? "EBAY_US";
+        return getBusinessPolicies(apiConfig(config), { marketplaceId });
       },
     }),
   ],
