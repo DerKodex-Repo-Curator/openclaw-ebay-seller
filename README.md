@@ -4,9 +4,21 @@ eBay seller automation for your OpenClaw agent — connect **your own** eBay sel
 
 Direct REST against the eBay **Sell** APIs via `authorization_code` OAuth. Your seller token is stored locally on the host and auto-refreshed. Every write that touches a live listing or money is **hard-gated** behind a two-step confirm.
 
-> **Status: feature-complete v0.1 surface (16 tools), pre-deploy.** OAuth login, read tools (inventory / offers / orders / business policies), soft-gated writes (create inventory item, create draft offer, mark shipped), and hard-gated writes (publish / withdraw / update live offer) behind the two-step approval gate — plus a SKILL.md that biases the agent to relay-and-wait, never self-confirm. 103 tests, twice Critic-reviewed. Remaining: production smoke (S8) and GitHub/ClawHub release (S9). See the build plan in the companion Volta project.
+> **Status: v0.1.0 — 16 tools, deployed and smoke-tested against eBay production.** OAuth login, read tools (inventory / offers / orders / business policies), soft-gated writes (create inventory item, create draft offer, mark shipped), and hard-gated writes (publish / withdraw / update live offer) behind a two-step approval gate — plus a SKILL.md that biases the agent to relay-and-wait, never self-confirm. 104 tests; the OAuth flow, the approval gate, and the write surface were each independently adversarially reviewed.
 
-This is the higher-stakes sibling of [`openclaw-ebay-research`](https://github.com/Jason-Vaughan/openclaw-ebay-research) (read-only market research, app-token only). The research plugin is a hard prerequisite — this plugin's listing workflow uses its category lookup and price research.
+This is the higher-stakes sibling of [`openclaw-ebay-research`](https://github.com/Jason-Vaughan/openclaw-ebay-research) (read-only market research, app-token only). The research plugin is a recommended companion — this plugin's listing workflow uses its category lookup and price research.
+
+## Tools at a glance
+
+| Group | Tools | Gate |
+|---|---|---|
+| **Auth** | `auth_start`, `auth_callback`, `auth_status` | — |
+| **Read** | `list_inventory_items`, `get_inventory_item`, `get_offers`, `get_orders`, `get_order`, `get_business_policies` | — |
+| **Soft writes** | `create_or_update_inventory_item`, `create_offer` (draft), `create_shipping_fulfillment` | execute + audit |
+| **Hard writes** | `publish_offer`, `withdraw_offer`, `update_offer` (when live) | two-step confirm |
+| **Approval** | `confirm_pending` | — |
+
+(All tool names are prefixed `ebay_seller_`.)
 
 ## Why two plugins?
 
@@ -25,7 +37,7 @@ eBay requires a registered HTTPS redirect URL (a RuName). Connecting is a three-
 2. eBay redirects back to your registered callback URL with `?code=...&state=...`. **`ebay_seller_auth_callback`** → pass that full redirect URL; the plugin validates the CSRF `state`, exchanges the code, and stores the token locally (0600).
 3. **`ebay_seller_auth_status`** → confirms connected state, environment, granted scopes, and token expiry.
 
-> **S1 today:** you paste the redirect URL into `auth_callback`. A **live callback** handler (an HTTP route at `/ebay-seller/callback` registered on the gateway via Tailscale Serve, capturing the code automatically — no copy-paste) is planned for a later chunk. The same HTTPS endpoint will then also serve eBay's mandatory **Marketplace Account Deletion** notification, required once the plugin reads orders (buyer PII).
+> **Today the code handoff is manual** (you paste the post-approval redirect URL into `auth_callback`). A **live callback** handler — an HTTP route at `/ebay-seller/callback` registered on the gateway (via Tailscale Serve or equivalent) that captures the code automatically — is planned. That same HTTPS endpoint will also serve eBay's **Marketplace Account Deletion** notification, which becomes required once you read orders (buyer PII) on a non-exempt application.
 
 ### Write gating
 
@@ -37,6 +49,18 @@ eBay requires a registered HTTPS redirect URL (a RuName). Connecting is a three-
 Set `autoApprove: true` in config to collapse hard gates into immediate execution (logged with `user_approved_at: "auto"`) — for trusted automation only.
 
 Every write attempt is recorded append-only at `~/.openclaw/secrets/ebay-seller-ops.jsonl`.
+
+## Security & safety
+
+This plugin acts on a **real** eBay seller account, so the trust model is deliberate:
+
+- **You bring your own eBay application.** The plugin ships no credentials. You register your own eBay developer app + keyset and your own RuName redirect. Nothing about anyone else's account is in this repo or the package.
+- **Secrets never leave your host.** Your `client_id`, `cert_id`, and the OAuth user/refresh token live only in `~/.openclaw/secrets/` on your machine (written `0600`). They are never committed, never transmitted anywhere except eBay's own OAuth/token endpoints, and are redacted from error messages.
+- **No unconfirmed live writes.** Publishing a listing, ending a listing, and editing a *published* offer are hard-gated: the tool stages the action and returns a summary + token; nothing happens until you confirm in a separate step. The bundled SKILL.md instructs the agent to relay the summary and **wait** — it must not self-confirm, and the agent's original request ("publish it") is treated as permission to *stage*, not to *execute*. `autoApprove` (off by default) is the only way to collapse that step, and it's an operator-only setting.
+- **Full audit trail.** Every executed write — soft or hard, success or failure — is appended to the ops log with what ran, when, and whether it was operator- or auto-approved.
+- **Reviewed.** The OAuth flow, the approval gate (under concurrency/crash), and the write surface were each put through an independent adversarial review; findings were fixed before release.
+
+The read-only [`openclaw-ebay-research`](https://github.com/Jason-Vaughan/openclaw-ebay-research) plugin is intentionally separate, so you can install market research without ever granting write access to a seller account.
 
 ## Install
 
