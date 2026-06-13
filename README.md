@@ -4,7 +4,7 @@ eBay seller automation for your OpenClaw agent — connect **your own** eBay sel
 
 Direct REST against the eBay **Sell** APIs via `authorization_code` OAuth. Your seller token is stored locally on the host and auto-refreshed. Every write that touches a live listing or money is **hard-gated** behind a two-step confirm.
 
-> **Status: in development (S1 — auth).** The plugin connects to your eBay seller account via OAuth (three `ebay_seller_auth_*` tools). Read tools (inventory/orders/policies) land in S2–S3; gated writes (draft/publish/withdraw offers) in S4–S6. See the build plan in the companion Volta project.
+> **Status: feature-complete v0.1 surface (16 tools), pre-deploy.** OAuth login, read tools (inventory / offers / orders / business policies), soft-gated writes (create inventory item, create draft offer, mark shipped), and hard-gated writes (publish / withdraw / update live offer) behind the two-step approval gate — plus a SKILL.md that biases the agent to relay-and-wait, never self-confirm. 103 tests, twice Critic-reviewed. Remaining: production smoke (S8) and GitHub/ClawHub release (S9). See the build plan in the companion Volta project.
 
 This is the higher-stakes sibling of [`openclaw-ebay-research`](https://github.com/Jason-Vaughan/openclaw-ebay-research) (read-only market research, app-token only). The research plugin is a hard prerequisite — this plugin's listing workflow uses its category lookup and price research.
 

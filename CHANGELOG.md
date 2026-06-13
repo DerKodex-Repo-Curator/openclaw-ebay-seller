@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **S7 — operator SKILL.md + cross-plugin recipes.**
+  `skills/ebay-seller/SKILL.md` (wired via the manifest `skills` field): rule-zero
+  (never narrate, call the tool), the **hard-gate workflow** (relay the summary
+  and WAIT — never self-confirm; the original request is permission to *stage*,
+  not to *confirm*; a fresh post-summary "yes" is required), a 16-tool decision
+  table with soft/hard labels, and cross-plugin recipes (list-from-spreadsheet
+  and price-check-before-publish using `openclaw-ebay-research` +
+  `openclaw-google-oauth`). `docs/AGENTS-snippet.md`: the hard-gate rule to inline
+  into the Volta workspace AGENTS.md at deploy (unconditional load on small models).
+- **S7 SKILL Critic fixes:** closed the "operator's original 'publish it' is
+  standing approval" loophole (request ≠ confirmation; approval must be a NEW
+  message responding to the relayed summary), hardened `autoApprove` to
+  operator-only (never set/assume), tightened batch-publish (never confirm
+  multiple tokens from one "yes"), and added a top-of-file ⛔ banner for small
+  models. Critic found no blockers.
+- **Tests:** +4 (103 total) — `src/skills.test.ts` doc-parity: SKILL.md exists,
+  teaches the relay-and-wait / never-self-confirm rule, names every hard-gated
+  tool, and documents all 16 registered tools.
+
 - **S6 — hard-gated write tools (full v0.1 surface, 16 tools).**
   `ebay_seller_publish_offer` (makes an offer a LIVE listing) and
   `ebay_seller_withdraw_offer` (ends a live listing) are hard-gated: they return
