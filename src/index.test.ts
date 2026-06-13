@@ -15,12 +15,12 @@ function collectTools(): ToolDef[] {
   return meta.tools as ToolDef[];
 }
 
-describe("plugin surface (S3 — auth + inventory + fulfillment/account reads)", () => {
+describe("plugin surface (S4 — reads + approval gate)", () => {
   it("has the expected plugin id", () => {
     expect((plugin as { id: string }).id).toBe("tangleclaw-ebay-seller");
   });
 
-  it("registers all read tools across auth, inventory, fulfillment, account", () => {
+  it("registers all read tools plus confirm_pending", () => {
     const names = collectTools()
       .map((t) => t.name)
       .sort();
@@ -28,6 +28,7 @@ describe("plugin surface (S3 — auth + inventory + fulfillment/account reads)",
       "ebay_seller_auth_callback",
       "ebay_seller_auth_start",
       "ebay_seller_auth_status",
+      "ebay_seller_confirm_pending",
       "ebay_seller_get_business_policies",
       "ebay_seller_get_inventory_item",
       "ebay_seller_get_offers",

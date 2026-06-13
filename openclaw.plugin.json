@@ -69,7 +69,8 @@
       "ebay_seller_get_offers",
       "ebay_seller_get_orders",
       "ebay_seller_get_order",
-      "ebay_seller_get_business_policies"
+      "ebay_seller_get_business_policies",
+      "ebay_seller_confirm_pending"
     ]
   }
 }

@@ -13,15 +13,26 @@ import {
 } from "./inventory.js";
 import { getOrders, getOrder } from "./fulfillment.js";
 import { getBusinessPolicies } from "./account.js";
+import { confirmPending, type GateConfig, type MutationRegistry } from "./gate.js";
 import type { SellApiConfig } from "./api.js";
 
 interface PluginConfig {
   credentialsPath: string;
   userTokenPath: string;
   defaultMarketplaceId?: string;
+  autoApprove?: boolean;
+  pendingApprovalTtlMs?: number;
+  opsLogPath?: string;
   httpTimeoutMs?: number;
   tokenRefreshSafetyWindowMs?: number;
 }
+
+/**
+ * Registry of executable write actions, keyed by action name. The approval
+ * gate (autoApprove path and confirm_pending) dispatches through this. Empty
+ * until the write tools land in S5+; each write tool registers its executor.
+ */
+const MUTATIONS: MutationRegistry = {};
 
 /** Project the plugin config down to the auth layer's config shape. */
 function authConfig(config: PluginConfig): SellerAuthConfig {
@@ -38,6 +49,16 @@ function apiConfig(config: PluginConfig): SellApiConfig {
   return {
     ...authConfig(config),
     defaultMarketplaceId: config.defaultMarketplaceId,
+  };
+}
+
+/** API config plus the approval-gate knobs, for the write tools + confirm. */
+function gateConfig(config: PluginConfig): GateConfig {
+  return {
+    ...apiConfig(config),
+    autoApprove: config.autoApprove,
+    pendingApprovalTtlMs: config.pendingApprovalTtlMs,
+    opsLogPath: config.opsLogPath,
   };
 }
 
@@ -313,6 +334,21 @@ export default defineToolPlugin({
         const marketplaceId =
           params.marketplaceId ?? config.defaultMarketplaceId ?? "EBAY_US";
         return getBusinessPolicies(apiConfig(config), { marketplaceId });
+      },
+    }),
+    tool({
+      name: "ebay_seller_confirm_pending",
+      label: "Confirm Pending eBay Action",
+      description:
+        "CONFIRM / APPROVE / EXECUTE a previously-staged eBay write action by its token. Call this — do not narrate — when the operator confirms they want a pending action to proceed (e.g. 'yes, publish it', 'confirm', 'go ahead', 'approve token X'). A hard-gated write tool returns `{ status: 'pending_approval', token, summary }` instead of acting; pass that token here to actually execute it. Tokens are single-use and expire (default 15 min). If the token is unknown or expired, re-run the original tool to stage a fresh one. Only confirm after the operator has seen and agreed to the summary.",
+      parameters: Type.Object({
+        token: Type.String({
+          description:
+            "The approval token from a prior tool's pending_approval response.",
+        }),
+      }),
+      async execute(params, config) {
+        return confirmPending(gateConfig(config), params.token, MUTATIONS);
       },
     }),
   ],
