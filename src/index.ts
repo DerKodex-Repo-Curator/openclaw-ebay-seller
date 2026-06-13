@@ -35,6 +35,7 @@ import {
   publishOffer,
   withdrawOffer,
   getOfferStatus,
+  updateRequiresApproval,
   type UpdateOfferInput,
 } from "./offer-write.js";
 import type { SellApiConfig } from "./api.js";
@@ -612,13 +613,26 @@ export default defineToolPlugin({
           fulfillmentPolicyId: params.fulfillmentPolicyId,
         };
         // Route by published-state: live offers are hard-gated, drafts soft.
-        // An unknown status fails safe to the hard gate.
+        // updateRequiresApproval fails CLOSED — anything not definitively
+        // UNPUBLISHED is hard-gated. (Accepted small TOCTOU: a draft that gets
+        // published between this status read and the soft PATCH would be changed
+        // without a prompt; the window is one back-to-back HTTP pair within a
+        // single tool call. The published→hard path has no such race.)
         const status = await getOfferStatus(apiConfig(config), params.offerId);
-        const isLive = status === "PUBLISHED" || status === "UNKNOWN";
+        const isLive = updateRequiresApproval(status);
+        const changes = [
+          params.price !== undefined ? `price→${params.currency ?? "USD"} ${params.price}` : null,
+          params.availableQuantity !== undefined ? `qty→${params.availableQuantity}` : null,
+          params.listingDescription !== undefined ? "description" : null,
+          params.categoryId !== undefined ? `category→${params.categoryId}` : null,
+          params.paymentPolicyId || params.returnPolicyId || params.fulfillmentPolicyId
+            ? "policies"
+            : null,
+        ].filter(Boolean);
         const descriptor = {
           toolName: "ebay_seller_update_offer",
           action: "update_offer",
-          summary: `Update offer '${params.offerId}'${params.price !== undefined ? ` price→${params.currency ?? "USD"} ${params.price}` : ""}${params.availableQuantity !== undefined ? ` qty→${params.availableQuantity}` : ""}${isLive ? " — offer is LIVE" : " (draft)"}`,
+          summary: `Update offer '${params.offerId}' [${changes.join(", ") || "no fields"}]${isLive ? " — offer is LIVE" : " (draft)"}`,
           params: input,
         };
         return isLive

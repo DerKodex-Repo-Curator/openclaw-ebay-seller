@@ -38,6 +38,17 @@ export async function getOfferStatus(
   return offer?.status ?? "UNKNOWN";
 }
 
+/**
+ * Decide whether an `update_offer` must be hard-gated, given the offer's status.
+ * Fail-CLOSED: only a definitively-draft offer ("UNPUBLISHED") takes the soft
+ * path. PUBLISHED, "UNKNOWN", or ANY unexpected/future/mis-cased value routes to
+ * the hard gate, so eBay returning something unanticipated can never silently
+ * change a live listing.
+ */
+export function updateRequiresApproval(status: string): boolean {
+  return status.trim().toUpperCase() !== "UNPUBLISHED";
+}
+
 /** Patch an existing offer (eBay PATCH `/offer/{offerId}`). Only the provided
  *  fields are sent. */
 export async function updateOffer(

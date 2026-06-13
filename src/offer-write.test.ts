@@ -7,6 +7,7 @@ import {
   publishOffer,
   withdrawOffer,
   getOfferStatus,
+  updateRequiresApproval,
 } from "./offer-write.js";
 import type { SellApiConfig } from "./api.js";
 import { writeUserToken, type UserToken } from "./secrets.js";
@@ -64,6 +65,19 @@ function captureSend(status: number, json?: unknown) {
   }) as unknown as typeof fetch;
   return { fetch: f, seen };
 }
+
+describe("updateRequiresApproval (fail-closed routing)", () => {
+  it("only a definitively-UNPUBLISHED offer is soft (no approval)", () => {
+    expect(updateRequiresApproval("UNPUBLISHED")).toBe(false);
+    expect(updateRequiresApproval("  unpublished ")).toBe(false); // tolerant of case/space
+  });
+
+  it("PUBLISHED, UNKNOWN, and ANY unexpected status require approval (fail-closed)", () => {
+    for (const s of ["PUBLISHED", "UNKNOWN", "published", "ENDED", "OUT_OF_STOCK", "", "weird"]) {
+      expect(updateRequiresApproval(s), `status ${JSON.stringify(s)} must hard-gate`).toBe(true);
+    }
+  });
+});
 
 describe("getOfferStatus", () => {
   it("returns the offer's status", async () => {

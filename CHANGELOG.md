@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `publish_offer` does NOT publish on the first call, publishes exactly once
   only after `confirm_pending`; `autoApprove=true` publishes immediately;
   PATCH-only-provided-fields; publish/withdraw endpoint routing.
+- **S6 Critic fix:** `update_offer` routing is now **fail-closed**
+  (`updateRequiresApproval`) — only a definitively `UNPUBLISHED` offer takes the
+  soft path; PUBLISHED / UNKNOWN / any unexpected or mis-cased status hard-gates
+  (was fail-open on unanticipated values). Added a tested unit for the decision,
+  documented the accepted soft-path TOCTOU, and made the approval summary list
+  every field being changed. (Critic found no blockers; verified
+  no-unconfirmed-live-write holds end to end.) +2 tests (99 total).
 
 - **S5 — soft-gated write tools.** Three writes that execute immediately and are
   audit-logged (no approval step — they don't touch live listings or money):
