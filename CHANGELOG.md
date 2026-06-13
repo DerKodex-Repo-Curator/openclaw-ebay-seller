@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-12
+
+First release. A complete eBay seller automation surface (16 tools) for OpenClaw:
+OAuth login to your own seller account, read inventory/offers/orders/business
+policies, soft-gated writes (create inventory items + draft offers, mark orders
+shipped), and hard-gated writes (publish/withdraw/edit live offers) behind a
+two-step approval gate with a full audit log. Deployed and smoke-tested against
+eBay production; OAuth, the gate, the write surface, and the SKILL.md were each
+independently adversarially reviewed.
+
 ### Fixed
 
 - **Sell API requests now send `Accept-Language`** (derived from the marketplace,
