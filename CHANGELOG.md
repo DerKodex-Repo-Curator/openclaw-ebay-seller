@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **S4 — approval gate + ops log + `confirm_pending`.** The safety machinery
+  every write tool (S5+) sits behind. `src/gate.ts`: staged pending-action store
+  with TTL, single-use redemption, and crash-safe persistence; `runGated()`
+  branches on `autoApprove` (execute-now) vs stage (`pending_approval` envelope);
+  `confirmPending()` redeems + executes via an injectable mutation registry.
+  `src/ops-log.ts`: append-only JSONL audit (0600). `ebay_seller_confirm_pending`
+  tool (registry empty until S5).
+- **S4 gate hardening (Independent Critic checkpoint).** Fixed two blockers the
+  Critic found before any write tool builds on the gate:
+  - **No concurrent double-execute:** all pending-file read-modify-writes are
+    serialized through an in-process lock, so two parallel `confirm_pending`
+    calls on one token execute exactly once (was a double-publish risk on
+    non-idempotent eBay writes).
+  - **Crash-safe atomic writes:** pending store is written temp-then-`rename`; a
+    corrupt store is treated as empty (fail-closed) instead of bricking the gate.
+  - `autoApprove` is now strict `=== true` (the string `"false"` and other
+    truthy non-booleans no longer bypass the gate — default-deny).
+  - Executor failures are logged to the audit trail (token stays consumed — no
+    retry of a maybe-partial write); a malformed TTL fails closed; an unset
+    `opsLogPath` surfaces an `audit_warning` instead of silently skipping audit.
+- **Tests:** +25 (82 total) including adversarial cases — concurrent-confirm
+  executes once, stage-racing-confirm can't resurrect a token, strict-truthiness
+  matrix, failure-path audit logging, corrupt-file resilience.
+
 - **S3 — fulfillment + account read tools.** Three tools:
   `ebay_seller_get_orders` (orders/sales, eBay filter syntax, paged),
   `ebay_seller_get_order` (one order by id), and

@@ -168,4 +168,94 @@ describe("multiple staged actions coexist", () => {
     expect(out.status).toBe("executed");
     expect(calls).toEqual([{ offerId: "A" }, { offerId: "B" }]);
   });
+
+  it("a stage racing a confirm does not resurrect the redeemed token", async () => {
+    const staged = await runGated(config, descriptor, registry);
+    const token = staged.status === "pending_approval" ? staged.token : "";
+    // Fire a new stage and the confirm concurrently — the lock must serialize
+    // them so the confirmed token isn't written back by the racing stage.
+    await Promise.all([
+      stagePending(config, { ...descriptor, params: { offerId: "X" } }),
+      confirmPending(config, token, registry),
+    ]);
+    // The original token is now consumed and must not be redeemable again.
+    await expect(confirmPending(config, token, registry)).rejects.toThrow(
+      /No pending action found/i
+    );
+  });
+});
+
+describe("BLOCKER: concurrent confirm of the same token executes exactly once", () => {
+  it("two parallel confirmPending calls → one executes, one rejects", async () => {
+    const staged = await runGated(config, descriptor, registry);
+    const token = staged.status === "pending_approval" ? staged.token : "";
+    const results = await Promise.allSettled([
+      confirmPending(config, token, registry),
+      confirmPending(config, token, registry),
+    ]);
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(calls).toHaveLength(1); // <-- executed exactly once, no double-publish
+  });
+});
+
+describe("autoApprove is strict === true (default-deny against truthy garbage)", () => {
+  for (const bad of ["false", "true", "no", "yes", 1, 0, null] as const) {
+    it(`treats autoApprove=${JSON.stringify(bad)} as NOT enabled → stages`, async () => {
+      const out = await runGated(
+        { ...config, autoApprove: bad as unknown as boolean },
+        descriptor,
+        registry
+      );
+      expect(out.status).toBe("pending_approval");
+      expect(calls).toHaveLength(0);
+    });
+  }
+
+  it("only boolean true executes immediately", async () => {
+    const out = await runGated({ ...config, autoApprove: true }, descriptor, registry);
+    expect(out.status).toBe("executed");
+  });
+});
+
+describe("audit trail on executor failure", () => {
+  it("logs a failed attempt (with error) and consumes the token (no retry)", async () => {
+    const failing: MutationRegistry = {
+      publish_offer: async () => {
+        throw new Error("eBay 500");
+      },
+    };
+    const staged = await runGated(config, descriptor, failing);
+    const token = staged.status === "pending_approval" ? staged.token : "";
+    await expect(confirmPending(config, token, failing)).rejects.toThrow(/eBay 500/);
+    const log = await opsLines();
+    expect(log).toHaveLength(1);
+    expect(log[0].error).toMatch(/eBay 500/);
+    // token consumed — cannot retry a possibly-partial non-idempotent write
+    await expect(confirmPending(config, token, failing)).rejects.toThrow(
+      /No pending action found/i
+    );
+  });
+
+  it("surfaces an audit_warning when opsLogPath is unset but still executes", async () => {
+    const noLog = { ...config, opsLogPath: undefined };
+    const out = await runGated({ ...noLog, autoApprove: true }, descriptor, registry);
+    expect(out.status).toBe("executed");
+    if (out.status === "executed") {
+      expect(out.audit_warning).toMatch(/not audit-logged/i);
+    }
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe("corrupt pending file does not brick the gate", () => {
+  it("a non-JSON pending file is treated as empty (fail-closed)", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(config.userTokenPath + ".pending.json", "{ this is not json");
+    // staging still works (corrupt store dropped, not thrown)
+    const out = await runGated(config, descriptor, registry);
+    expect(out.status).toBe("pending_approval");
+  });
 });

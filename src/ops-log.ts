@@ -16,6 +16,8 @@ export interface OpsLogEntry {
   request_summary: string;
   response_status?: number;
   ebay_request_id?: string;
+  /** Present when the executor threw — the write attempt failed. */
+  error?: string;
 }
 
 /**
