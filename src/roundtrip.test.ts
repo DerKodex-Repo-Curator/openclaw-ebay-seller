@@ -39,6 +39,16 @@ function fetchReturning(json: unknown): typeof fetch {
   return (async () => ({ ok: true, json: async () => json }) as Response) as unknown as typeof fetch;
 }
 
+function fetchFailing(): typeof fetch {
+  return (async () =>
+    ({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      text: async () => JSON.stringify({ error: "invalid_grant" }),
+    }) as Response) as unknown as typeof fetch;
+}
+
 const exchangeJson = {
   access_token: "AT",
   expires_in: 7200,
@@ -68,6 +78,17 @@ describe("OAuth round-trip (file-backed)", () => {
     expect(status.environment).toBe("sandbox");
   });
 
+  it("warns when a secrets file has permissions wider than 0600", async () => {
+    const { chmod } = await import("node:fs/promises");
+    const { state } = await startAuth(config);
+    await completeAuth(config, `https://host/cb?code=C&state=${state}`, {
+      fetchImpl: fetchReturning(exchangeJson),
+    });
+    await chmod(config.credentialsPath, 0o644); // loosen
+    const status = await getAuthStatus(config);
+    expect(status.warnings.some((w) => /wider than 0600/.test(w))).toBe(true);
+  });
+
   it("rejects a callback whose state doesn't match the issued one", async () => {
     await startAuth(config);
     await expect(
@@ -92,6 +113,44 @@ describe("OAuth round-trip (file-backed)", () => {
         fetchImpl: fetchReturning(exchangeJson),
       })
     ).rejects.toThrow(/No authorization code/i);
+  });
+
+  it("makes a state single-use: a second callback after success is rejected", async () => {
+    const { state } = await startAuth(config);
+    await completeAuth(config, `https://host/cb?code=C&state=${state}`, {
+      fetchImpl: fetchReturning(exchangeJson),
+    });
+    await expect(
+      completeAuth(config, `https://host/cb?code=C&state=${state}`, {
+        fetchImpl: fetchReturning(exchangeJson),
+      })
+    ).rejects.toThrow(/No pending OAuth request/i);
+  });
+
+  it("consumes the state even when the code exchange fails (no replay window)", async () => {
+    const { state } = await startAuth(config);
+    await expect(
+      completeAuth(config, `https://host/cb?code=C&state=${state}`, {
+        fetchImpl: fetchFailing(),
+      })
+    ).rejects.toThrow(/token request failed/i);
+    // State is gone — replaying the same code+state no longer finds a pending req.
+    await expect(
+      completeAuth(config, `https://host/cb?code=C&state=${state}`, {
+        fetchImpl: fetchReturning(exchangeJson),
+      })
+    ).rejects.toThrow(/No pending OAuth request/i);
+  });
+
+  it("rejects a callback once the state TTL has elapsed", async () => {
+    const t0 = 1_900_000_000_000;
+    const { state } = await startAuth(config, t0);
+    await expect(
+      completeAuth(config, `https://host/cb?code=C&state=${state}`, {
+        fetchImpl: fetchReturning(exchangeJson),
+        now: t0 + 16 * 60_000, // > 15-min TTL
+      })
+    ).rejects.toThrow(/mismatch or expired/i);
   });
 });
 
@@ -140,6 +199,23 @@ describe("getValidAccessToken", () => {
     await writeUserToken(config.userTokenPath, expired);
     await expect(getValidAccessToken(config, { now: 5000 })).rejects.toThrow(
       /refresh token has expired/i
+    );
+  });
+
+  it("refuses a token whose environment doesn't match the credentials", async () => {
+    const prodToken: UserToken = {
+      access_token: "x",
+      refresh_token: "RT",
+      token_type: "User Access Token",
+      expires_at: new Date(Date.now() + 7200_000).toISOString(),
+      refresh_expires_at: new Date(Date.now() + 47304000_000).toISOString(),
+      scopes: [],
+      environment: "production", // creds are sandbox
+    };
+    const { writeUserToken } = await import("./secrets.js");
+    await writeUserToken(config.userTokenPath, prodToken);
+    await expect(getValidAccessToken(config)).rejects.toThrow(
+      /production environment but credentials are set to sandbox/i
     );
   });
 });

@@ -4,7 +4,7 @@ eBay seller automation for your OpenClaw agent — connect **your own** eBay sel
 
 Direct REST against the eBay **Sell** APIs via `authorization_code` OAuth. Your seller token is stored locally on the host and auto-refreshed. Every write that touches a live listing or money is **hard-gated** behind a two-step confirm.
 
-> **Status: in development (S0 — scaffold).** The plugin currently builds and loads but exposes **zero tools**. OAuth round-trip lands in S1; read tools in S2–S3; gated writes in S4–S6. See the build plan in the companion Volta project.
+> **Status: in development (S1 — auth).** The plugin connects to your eBay seller account via OAuth (three `ebay_seller_auth_*` tools). Read tools (inventory/orders/policies) land in S2–S3; gated writes (draft/publish/withdraw offers) in S4–S6. See the build plan in the companion Volta project.
 
 This is the higher-stakes sibling of [`openclaw-ebay-research`](https://github.com/Jason-Vaughan/openclaw-ebay-research) (read-only market research, app-token only). The research plugin is a hard prerequisite — this plugin's listing workflow uses its category lookup and price research.
 
@@ -19,9 +19,13 @@ Splitting them keeps the read-only surface installable without ever granting wri
 
 ### Authentication (OAuth `authorization_code`)
 
-eBay requires a registered HTTPS redirect URL (a RuName). This plugin uses a **live callback** handler: it registers an HTTP route at `/ebay-seller/callback` on the OpenClaw gateway, exposed over HTTPS via Tailscale Serve. You approve once in the browser; eBay redirects to the callback; the plugin captures the code and exchanges it for tokens — no copy-pasting URLs.
+eBay requires a registered HTTPS redirect URL (a RuName). Connecting is a three-step round-trip:
 
-The same HTTPS endpoint later serves eBay's mandatory **Marketplace Account Deletion** notification (required once the plugin reads orders, which contain buyer PII).
+1. **`ebay_seller_auth_start`** → returns an `authorizeUrl`. Open it in a browser (signed in to your seller account) and approve the requested scopes.
+2. eBay redirects back to your registered callback URL with `?code=...&state=...`. **`ebay_seller_auth_callback`** → pass that full redirect URL; the plugin validates the CSRF `state`, exchanges the code, and stores the token locally (0600).
+3. **`ebay_seller_auth_status`** → confirms connected state, environment, granted scopes, and token expiry.
+
+> **S1 today:** you paste the redirect URL into `auth_callback`. A **live callback** handler (an HTTP route at `/ebay-seller/callback` registered on the gateway via Tailscale Serve, capturing the code automatically — no copy-paste) is planned for a later chunk. The same HTTPS endpoint will then also serve eBay's mandatory **Marketplace Account Deletion** notification, required once the plugin reads orders (buyer PII).
 
 ### Write gating
 

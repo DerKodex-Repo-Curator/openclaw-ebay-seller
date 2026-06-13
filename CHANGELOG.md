@@ -38,14 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (credentials/token/ops-log paths, `autoApprove`, `pendingApprovalTtlMs`,
   timeouts) and **zero tools** — the empty surface builds and loads, proving
   the wiring before any OAuth or tool code lands.
-- **Smoke test** (`src/index.test.ts`): asserts plugin id, zero-tool surface,
-  and manifest↔registration drift guard.
-
-### Internal
-
-- **Callback strategy locked: Option B (live callback).** Plugin registers an
-  HTTP route at `/ebay-seller/callback` on the gateway via Tailscale Serve,
-  rather than the paste-the-URL flow. OpenClaw's plugin SDK exposes
-  `registerPluginHttpRoute`, confirming feasibility. The same HTTPS endpoint is
-  reused for eBay's mandatory account-deletion notification once order-reading
-  (buyer PII) lands. Decision recorded in the build plan.
+- **Smoke test** (`src/index.test.ts`): asserts plugin id, tool surface, and
+  manifest↔registration drift guard.
+- **Callback strategy locked: Option B (live callback).** OpenClaw's plugin SDK
+  exposes `registerPluginHttpRoute`, so a later chunk will register an HTTP
+  route at `/ebay-seller/callback` (via Tailscale Serve) that captures the OAuth
+  code automatically — replacing the S1 paste-the-URL flow. The same HTTPS
+  endpoint is reused for eBay's mandatory account-deletion notification once
+  order-reading (buyer PII) lands. Decision recorded in the build plan.

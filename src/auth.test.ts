@@ -208,6 +208,33 @@ describe("refreshUserToken", () => {
     expect(out.refresh_expires_at).toBe(existing.refresh_expires_at); // unchanged
     expect(Date.parse(out.expires_at)).toBe(now + 7200 * 1000);
   });
+
+  it("carries stored scopes forward even if the refresh response echoes a narrower set", async () => {
+    const fakeFetch = (async () =>
+      ({
+        ok: true,
+        json: async () => ({
+          access_token: "new-AT",
+          expires_in: 7200,
+          token_type: "User Access Token",
+          scope: "https://api.ebay.com/oauth/api_scope/sell.inventory", // narrower
+        }),
+      }) as Response) as unknown as typeof fetch;
+    const out = await refreshUserToken(CREDS, existing, fakeFetch);
+    expect(out.scopes).toEqual(SELLER_SCOPES); // not shrunk
+  });
+});
+
+describe("redactAuthHeaders — bare credential fields", () => {
+  it("scrubs refresh_token / access_token / code form fields", () => {
+    const out = redactAuthHeaders(
+      "body: refresh_token=v^1.1#secret&code=abc123&access_token=zzz"
+    );
+    expect(out).not.toContain("v^1.1#secret");
+    expect(out).not.toContain("abc123");
+    expect(out).not.toContain("zzz");
+    expect(out).toContain("refresh_token=[REDACTED]");
+  });
 });
 
 describe("refreshTokenExpired", () => {

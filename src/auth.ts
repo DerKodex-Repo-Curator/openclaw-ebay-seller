@@ -52,7 +52,13 @@ export function authorizeBaseUrl(env: EbayEnvironment): string {
 export function redactAuthHeaders(text: string): string {
   return text
     .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, "Basic [REDACTED]")
-    .replace(/Bearer\s+[A-Za-z0-9._\-+/=]+/gi, "Bearer [REDACTED]");
+    .replace(/Bearer\s+[A-Za-z0-9._\-+/=]+/gi, "Bearer [REDACTED]")
+    // Also scrub bare credential-bearing form fields, in case eBay echoes the
+    // request body back in an error (refresh-token leakage is the worst case).
+    .replace(
+      /\b(refresh_token|access_token|code)=[^\s&"]+/gi,
+      "$1=[REDACTED]"
+    );
 }
 
 /** Cryptographically-random, URL-safe CSRF state token. */
@@ -78,7 +84,6 @@ export function buildAuthorizeUrl(
     response_type: "code",
     scope: scopes.join(" "),
     state,
-    prompt: "login",
   });
   return `${authorizeBaseUrl(creds.environment)}?${params.toString()}`;
 }
@@ -290,7 +295,10 @@ export async function refreshUserToken(
     token_type: data.token_type,
     expires_at: new Date(now + data.expires_in * 1000).toISOString(),
     refresh_token: data.refresh_token ?? existing.refresh_token,
-    scopes: data.scope ? data.scope.split(/\s+/).filter(Boolean) : existing.scopes,
+    // A refresh does not change the grant — we asked for exactly the stored
+    // scopes — so carry them forward rather than trusting the response echo,
+    // which could otherwise silently shrink what auth_status reports.
+    scopes: existing.scopes,
   };
 }
 
@@ -363,6 +371,10 @@ export async function completeAuth(
       "OAuth state mismatch or expired (possible CSRF, or the authorization took longer than 15 minutes). Run ebay_seller_auth_start again."
     );
   }
+  // Consume the state BEFORE the exchange: a state's job ends the moment it's
+  // matched. If the exchange then fails (bad code, network), the state must not
+  // remain replayable for the rest of its TTL — the operator re-runs auth_start.
+  await clearPendingState(config.userTokenPath);
   const token = await exchangeCodeForToken(
     creds,
     code,
@@ -371,7 +383,6 @@ export async function completeAuth(
     now
   );
   await writeUserToken(config.userTokenPath, token);
-  await clearPendingState(config.userTokenPath);
   return { connected: true, scopes: token.scopes, expires_at: token.expires_at };
 }
 
@@ -395,6 +406,11 @@ export async function getValidAccessToken(
   if (token.environment !== creds.environment) {
     throw new Error(
       `Stored token is for the ${token.environment} environment but credentials are set to ${creds.environment}. Re-run ebay_seller_auth_start.`
+    );
+  }
+  if (Number.isNaN(Date.parse(token.refresh_expires_at))) {
+    throw new Error(
+      "Stored eBay token is missing a valid refresh-token expiry (file may be corrupt). Re-run ebay_seller_auth_start to reconnect."
     );
   }
   if (refreshTokenExpired(token, now)) {
