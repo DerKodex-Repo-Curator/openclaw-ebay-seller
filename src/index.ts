@@ -1,5 +1,26 @@
 import { Type } from "typebox";
 import { defineToolPlugin } from "openclaw/plugin-sdk/tool-plugin";
+import {
+  startAuth,
+  completeAuth,
+  getAuthStatus,
+  type SellerAuthConfig,
+} from "./auth.js";
+
+/** Project the plugin config down to the auth layer's config shape. */
+function authConfig(config: {
+  credentialsPath: string;
+  userTokenPath: string;
+  httpTimeoutMs?: number;
+  tokenRefreshSafetyWindowMs?: number;
+}): SellerAuthConfig {
+  return {
+    credentialsPath: config.credentialsPath,
+    userTokenPath: config.userTokenPath,
+    httpTimeoutMs: config.httpTimeoutMs,
+    tokenRefreshSafetyWindowMs: config.tokenRefreshSafetyWindowMs,
+  };
+}
 
 /**
  * Plugin configuration schema for the eBay Seller plugin.
@@ -75,8 +96,49 @@ export default defineToolPlugin({
   description:
     "OpenClaw plugin for eBay seller automation — connect your own eBay seller account via authorization_code OAuth, read inventory/offers/orders/business-policies, and draft + publish listings behind a two-step approval gate. Direct REST against the eBay Sell APIs; the seller user token is stored locally and auto-refreshed. Hard-gated writes protect anything that touches live listings or money.",
   configSchema,
-  // S0 scaffold: zero tools. OAuth (S1) + read tools (S2-S3) + gated writes
-  // (S4-S6) land in later chunks. The empty surface still builds and loads,
-  // proving the manifest + entry point are wired correctly.
-  tools: () => [],
+  // S1: OAuth authorization_code round-trip (3 auth tools). Read tools (S2-S3)
+  // and gated writes (S4-S6) land in later chunks.
+  tools: (tool) => [
+    tool({
+      name: "ebay_seller_auth_start",
+      label: "Connect eBay Seller Account (start)",
+      description:
+        "BEGIN connecting / linking / authorizing the operator's eBay SELLER account. Call this — do not narrate — when the operator says: connect my ebay (seller) account, link ebay, authorize ebay selling, log in to ebay, set up ebay selling, reconnect ebay. Returns an `authorizeUrl` the operator must open in a browser and approve. After approving, eBay redirects to the configured callback; the operator passes that redirect URL (or the captured code) to ebay_seller_auth_callback to finish. Requests the five Sell scopes (inventory, account, fulfillment). Safe to re-run; it issues a fresh single-use state each time.",
+      parameters: Type.Object({}),
+      async execute(_params, config) {
+        const result = await startAuth(authConfig(config));
+        return {
+          authorizeUrl: result.authorizeUrl,
+          scopes: result.scopes,
+          instructions:
+            "Open authorizeUrl in a browser, sign in to the eBay seller account, and approve. eBay will redirect to the configured callback URL with a code. Then call ebay_seller_auth_callback with that full redirect URL.",
+        };
+      },
+    }),
+    tool({
+      name: "ebay_seller_auth_callback",
+      label: "Connect eBay Seller Account (finish)",
+      description:
+        "FINISH connecting the eBay seller account by redeeming the authorization code from the post-approval redirect. Call this — do not narrate — right after the operator approves in the browser and provides the redirect URL (or a raw code+state). Pass the FULL redirect URL the browser landed on (it contains ?code=...&state=...) as `callback`. Validates the CSRF state issued by ebay_seller_auth_start, exchanges the code for the seller's user token, and stores it locally (0600). Returns connection status. If state is missing/expired, re-run ebay_seller_auth_start first.",
+      parameters: Type.Object({
+        callback: Type.String({
+          description:
+            "The full redirect URL the browser landed on after approval (e.g. 'https://<host>/ebay-seller/callback?code=v%5E1...&state=...'). A bare '?code=...&state=...' query string is also accepted.",
+        }),
+      }),
+      async execute(params, config) {
+        return completeAuth(authConfig(config), params.callback);
+      },
+    }),
+    tool({
+      name: "ebay_seller_auth_status",
+      label: "eBay Seller Auth Status",
+      description:
+        "READ / CHECK / SHOW whether the eBay SELLER account is connected. Call this when the operator asks: is ebay (selling) connected, check ebay seller status, am I logged in to ebay, what ebay scopes do I have, when does my ebay token expire, or to debug a failing seller tool. Returns connected state, environment (sandbox/production), granted scopes, access- and refresh-token expiry, and any file-permission warnings. Never echoes the token itself.",
+      parameters: Type.Object({}),
+      async execute(_params, config) {
+        return getAuthStatus(authConfig(config));
+      },
+    }),
+  ],
 });

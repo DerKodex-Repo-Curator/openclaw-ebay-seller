@@ -15,13 +15,31 @@ function collectTools(): ToolDef[] {
   return meta.tools as ToolDef[];
 }
 
-describe("plugin surface (S0 scaffold)", () => {
+describe("plugin surface (S1 — auth)", () => {
   it("has the expected plugin id", () => {
     expect((plugin as { id: string }).id).toBe("tangleclaw-ebay-seller");
   });
 
-  it("registers zero tools at S0 (OAuth + read/write surface lands in S1+)", () => {
-    expect(collectTools()).toHaveLength(0);
+  it("registers the three auth tools", () => {
+    const names = collectTools()
+      .map((t) => t.name)
+      .sort();
+    expect(names).toEqual([
+      "ebay_seller_auth_callback",
+      "ebay_seller_auth_start",
+      "ebay_seller_auth_status",
+    ]);
+  });
+
+  it("every tool has a label, a substantial description, and a parameters schema", () => {
+    for (const t of collectTools()) {
+      expect(t.label, `tool ${t.name} is missing a label`).toBeTruthy();
+      expect(
+        t.description.length,
+        `tool ${t.name} description is too short`
+      ).toBeGreaterThan(40);
+      expect(t.parameters).toBeTruthy();
+    }
   });
 
   it("manifest contracts.tools exactly matches the registered tools (drift guard)", async () => {

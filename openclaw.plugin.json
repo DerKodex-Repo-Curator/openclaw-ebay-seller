@@ -60,6 +60,10 @@
     }
   },
   "contracts": {
-    "tools": []
+    "tools": [
+      "ebay_seller_auth_start",
+      "ebay_seller_auth_callback",
+      "ebay_seller_auth_status"
+    ]
   }
 }
