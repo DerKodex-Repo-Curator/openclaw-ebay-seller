@@ -11,6 +11,30 @@ export interface SellApiConfig extends SellerAuthConfig {
   defaultMarketplaceId?: string;
 }
 
+const MARKETPLACE_LOCALE: Record<string, string> = {
+  EBAY_US: "en-US",
+  EBAY_CA: "en-CA",
+  EBAY_GB: "en-GB",
+  EBAY_AU: "en-AU",
+  EBAY_DE: "de-DE",
+  EBAY_AT: "de-AT",
+  EBAY_CH: "de-CH",
+  EBAY_FR: "fr-FR",
+  EBAY_IT: "it-IT",
+  EBAY_ES: "es-ES",
+  EBAY_NL: "nl-NL",
+  EBAY_IE: "en-IE",
+};
+
+/**
+ * The BCP-47 locale eBay's Sell Inventory API requires in the `Accept-Language`
+ * header. Without it, inventory/offer reads 400 with errorId 25709. Defaults to
+ * en-US for an unknown/unset marketplace.
+ */
+export function localeForMarketplace(marketplaceId?: string): string {
+  return (marketplaceId && MARKETPLACE_LOCALE[marketplaceId]) || "en-US";
+}
+
 interface EbayError {
   errorId?: number;
   domain?: string;
@@ -67,6 +91,8 @@ export async function sellApiGet<T = unknown>(
     Authorization: `Bearer ${token.access_token}`,
     Accept: "application/json",
     "Content-Type": "application/json",
+    // Required by the Sell Inventory API (omitting it 400s with errorId 25709).
+    "Accept-Language": localeForMarketplace(options.marketplaceId),
   };
   if (options.marketplaceId) {
     headers["X-EBAY-C-MARKETPLACE-ID"] = options.marketplaceId;
@@ -125,6 +151,7 @@ export async function sellApiSend<T = unknown>(
     Authorization: `Bearer ${token.access_token}`,
     Accept: "application/json",
     "Content-Type": "application/json",
+    "Accept-Language": localeForMarketplace(params.marketplaceId),
   };
   if (params.contentLanguage) headers["Content-Language"] = params.contentLanguage;
   if (params.marketplaceId) {

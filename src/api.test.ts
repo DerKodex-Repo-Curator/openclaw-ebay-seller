@@ -88,7 +88,20 @@ describe("sellApiGet", () => {
       "https://api.ebay.com/sell/inventory/v1/inventory_item?limit=25&offset=0"
     );
     expect(captured!.headers.Authorization).toBe("Bearer LIVE-AT");
+    // Regression guard: the Sell Inventory API 400s (errorId 25709) without
+    // an Accept-Language header. Caught by the live Volta smoke.
+    expect(captured!.headers["Accept-Language"]).toBe("en-US");
     expect(out).toEqual({ total: 0 });
+  });
+
+  it("derives Accept-Language from the marketplace (EBAY_GB → en-GB)", async () => {
+    let headers: Record<string, string> = {};
+    const fakeFetch = (async (_u: string, init: RequestInit) => {
+      headers = init.headers as Record<string, string>;
+      return { ok: true, status: 200, text: async () => "{}" } as Response;
+    }) as unknown as typeof fetch;
+    await sellApiGet(config, "/x", {}, { fetchImpl: fakeFetch, marketplaceId: "EBAY_GB" });
+    expect(headers["Accept-Language"]).toBe("en-GB");
   });
 
   it("omits the query string entirely when there are no params", async () => {

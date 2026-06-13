@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sell API requests now send `Accept-Language`** (derived from the marketplace,
+  e.g. EBAY_US → en-US). Without it, eBay's Sell Inventory reads 400 with
+  errorId 25709 ("Invalid value for header Accept-Language"). **Caught by the
+  live Volta production smoke** — mocked-fetch unit tests couldn't surface it.
+  Added `localeForMarketplace` + a regression test.
+
 ### Added
+
+- **S8 — deployed to Volta + production smoke (read & write).** Plugin deployed
+  to `~/.openclaw/extensions/tangleclaw-ebay-seller` against eBay production,
+  enabled in `openclaw.json`, gateway restarted (loaded cleanly, 16 tools). Live
+  smoke: `auth_status` connected/production/5 scopes; `list_inventory_items`
+  200/total 0; full write CRUD validated reversibly — created a throwaway
+  inventory item (204), read it back, deleted it (204), confirmed gone (404). No
+  listing published; no residue.
 
 - **S7 — operator SKILL.md + cross-plugin recipes.**
   `skills/ebay-seller/SKILL.md` (wired via the manifest `skills` field): rule-zero
