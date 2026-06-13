@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sellApiGet, formatEbayErrors, type SellApiConfig } from "./api.js";
+import {
+  sellApiGet,
+  sellApiSend,
+  formatEbayErrors,
+  type SellApiConfig,
+} from "./api.js";
 import { writeUserToken, type UserToken } from "./secrets.js";
 
 let dir: string;
@@ -131,5 +136,79 @@ describe("sellApiGet", () => {
     await expect(
       sellApiGet(config, "/sell/inventory/v1/offer", {}, { fetchImpl: fakeFetch })
     ).rejects.toThrow(/403 Forbidden.*\[1100\] Access denied/);
+  });
+});
+
+describe("sellApiSend", () => {
+  it("sends the method + JSON body + Content-Language and captures the request id", async () => {
+    let captured: {
+      method?: string;
+      body?: unknown;
+      headers?: Record<string, string>;
+    } = {};
+    const fakeFetch = (async (_url: string, init: RequestInit) => {
+      captured = {
+        method: init.method,
+        body: init.body ? JSON.parse(init.body as string) : undefined,
+        headers: init.headers as Record<string, string>,
+      };
+      return {
+        ok: true,
+        status: 201,
+        statusText: "Created",
+        headers: { get: (h: string) => (h === "x-ebay-c-request-id" ? "REQ-9" : null) },
+        text: async () => JSON.stringify({ offerId: "o-1" }),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const out = await sellApiSend(
+      config,
+      {
+        method: "POST",
+        path: "/sell/inventory/v1/offer",
+        body: { sku: "S1" },
+        contentLanguage: "en-US",
+      },
+      { fetchImpl: fakeFetch }
+    );
+    expect(captured.method).toBe("POST");
+    expect(captured.body).toEqual({ sku: "S1" });
+    expect(captured.headers!["Content-Language"]).toBe("en-US");
+    expect(out.status).toBe(201);
+    expect(out.data).toEqual({ offerId: "o-1" });
+    expect(out.requestId).toBe("REQ-9");
+  });
+
+  it("returns undefined data for a 204 and surfaces eBay errors on failure", async () => {
+    const ok204 = (async () =>
+      ({
+        ok: true,
+        status: 204,
+        headers: { get: () => null },
+        text: async () => "",
+      }) as unknown as Response) as unknown as typeof fetch;
+    const r = await sellApiSend(
+      config,
+      { method: "PUT", path: "/sell/inventory/v1/inventory_item/S1", body: {} },
+      { fetchImpl: ok204 }
+    );
+    expect(r.status).toBe(204);
+    expect(r.data).toBeUndefined();
+
+    const fail = (async () =>
+      ({
+        ok: false,
+        status: 400,
+        statusText: "Bad Request",
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ errors: [{ errorId: 25002, message: "bad sku" }] }),
+      }) as unknown as Response) as unknown as typeof fetch;
+    await expect(
+      sellApiSend(
+        config,
+        { method: "PUT", path: "/sell/inventory/v1/inventory_item/S1", body: {} },
+        { fetchImpl: fail }
+      )
+    ).rejects.toThrow(/PUT .* failed \(400 Bad Request\).*\[25002\] bad sku/);
   });
 });

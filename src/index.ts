@@ -13,7 +13,22 @@ import {
 } from "./inventory.js";
 import { getOrders, getOrder } from "./fulfillment.js";
 import { getBusinessPolicies } from "./account.js";
-import { confirmPending, type GateConfig, type MutationRegistry } from "./gate.js";
+import {
+  runSoftGated,
+  confirmPending,
+  type GateConfig,
+  type MutationRegistry,
+} from "./gate.js";
+import {
+  createOrReplaceInventoryItem,
+  createOffer,
+  type InventoryItemInput,
+  type OfferInput,
+} from "./inventory-write.js";
+import {
+  createShippingFulfillment,
+  type ShippingFulfillmentInput,
+} from "./fulfillment-write.js";
 import type { SellApiConfig } from "./api.js";
 
 interface PluginConfig {
@@ -29,10 +44,34 @@ interface PluginConfig {
 
 /**
  * Registry of executable write actions, keyed by action name. The approval
- * gate (autoApprove path and confirm_pending) dispatches through this. Empty
- * until the write tools land in S5+; each write tool registers its executor.
+ * gate (soft path, autoApprove path, and confirm_pending) dispatches through
+ * this — the single source of truth for what writes exist. S5 adds the
+ * soft-gated writes; S6 adds the hard-gated ones.
  */
-const MUTATIONS: MutationRegistry = {};
+const MUTATIONS: MutationRegistry = {
+  create_or_update_inventory_item: async (params, config) => {
+    const input = params as InventoryItemInput;
+    const r = await createOrReplaceInventoryItem(config, input);
+    return {
+      result: r.data ?? { sku: input.sku, status: "saved" },
+      status: r.status,
+      ebayRequestId: r.requestId,
+    };
+  },
+  create_offer: async (params, config) => {
+    const r = await createOffer(config, params as OfferInput);
+    return { result: r.data, status: r.status, ebayRequestId: r.requestId };
+  },
+  create_shipping_fulfillment: async (params, config) => {
+    const input = params as ShippingFulfillmentInput;
+    const r = await createShippingFulfillment(config, input);
+    return {
+      result: r.data ?? { orderId: input.orderId, status: "fulfillment_created" },
+      status: r.status,
+      ebayRequestId: r.requestId,
+    };
+  },
+};
 
 /** Project the plugin config down to the auth layer's config shape. */
 function authConfig(config: PluginConfig): SellerAuthConfig {
@@ -334,6 +373,173 @@ export default defineToolPlugin({
         const marketplaceId =
           params.marketplaceId ?? config.defaultMarketplaceId ?? "EBAY_US";
         return getBusinessPolicies(apiConfig(config), { marketplaceId });
+      },
+    }),
+    tool({
+      name: "ebay_seller_create_or_update_inventory_item",
+      label: "Create/Update eBay Inventory Item",
+      description:
+        "CREATE or UPDATE an eBay inventory item (a SKU-level product record). Call this — do not narrate — when the operator wants to add/create/update a product or SKU in their eBay inventory (e.g. 'add this item to my ebay inventory', 'create a SKU for X', 'update the quantity on SKU Y'). This is a soft-gated write: it executes immediately and is audit-logged, but it is NOT a live listing — nothing is visible to buyers until an offer is created (ebay_seller_create_offer) and published (ebay_seller_publish_offer). Idempotent: re-sending for an existing SKU replaces the record. Provide a leaf-category-appropriate title and item specifics (aspects) for best results.",
+      parameters: Type.Object({
+        sku: Type.String({
+          description: "The seller's SKU (their own product identifier).",
+        }),
+        title: Type.String({
+          description: "Listing title (max 80 chars on most categories).",
+        }),
+        condition: Type.String({
+          description:
+            "eBay condition enum, e.g. NEW, USED_EXCELLENT, USED_GOOD, USED_ACCEPTABLE, FOR_PARTS_OR_NOT_WORKING.",
+        }),
+        quantity: Type.Integer({
+          minimum: 0,
+          description: "Available quantity.",
+        }),
+        description: Type.Optional(
+          Type.String({ description: "Full item description (HTML allowed)." })
+        ),
+        imageUrls: Type.Optional(
+          Type.Array(Type.String(), {
+            description:
+              "Publicly-reachable HTTPS image URLs (eBay requires at least one to publish later).",
+          })
+        ),
+        aspects: Type.Optional(
+          Type.Record(Type.String(), Type.Array(Type.String()), {
+            description:
+              "Item specifics as name → values, e.g. { \"Brand\": [\"Nikon\"], \"Model\": [\"D750\"] }.",
+          })
+        ),
+        contentLanguage: Type.Optional(
+          Type.String({ description: "Content language; defaults to en-US." })
+        ),
+      }),
+      async execute(params, config) {
+        return runSoftGated(
+          gateConfig(config),
+          {
+            toolName: "ebay_seller_create_or_update_inventory_item",
+            action: "create_or_update_inventory_item",
+            summary: `Create/replace inventory item SKU '${params.sku}' (qty ${params.quantity}, ${params.condition})`,
+            params: {
+              sku: params.sku,
+              title: params.title,
+              condition: params.condition,
+              quantity: params.quantity,
+              description: params.description,
+              imageUrls: params.imageUrls,
+              aspects: params.aspects,
+              contentLanguage: params.contentLanguage,
+            } satisfies InventoryItemInput,
+          },
+          MUTATIONS
+        );
+      },
+    }),
+    tool({
+      name: "ebay_seller_create_offer",
+      label: "Create eBay Offer (draft)",
+      description:
+        "CREATE an offer for one of the seller's SKUs — the marketplace-specific listing data (price, category, policies). Call this — do not narrate — when the operator wants to make a listing / set a price / prepare to sell an existing SKU (e.g. 'create a listing for SKU X at $250', 'make an offer for this item'). Soft-gated: executes immediately and is audit-logged, but the offer is created UNPUBLISHED (a draft) — it does NOT go live until ebay_seller_publish_offer (hard-gated). Requires the SKU to already exist (ebay_seller_create_or_update_inventory_item) and a leaf categoryId (use the ebay_research category tools). Returns the offerId.",
+      parameters: Type.Object({
+        sku: Type.String({ description: "The SKU this offer is for (must exist)." }),
+        categoryId: Type.String({
+          description:
+            "eBay leaf category id (from ebay_research_get_category_suggestions / _subtree).",
+        }),
+        price: Type.Number({
+          minimum: 0,
+          description: "Listing price in the marketplace currency.",
+        }),
+        currency: Type.Optional(
+          Type.String({ description: "ISO currency code; defaults to USD." })
+        ),
+        availableQuantity: Type.Optional(
+          Type.Integer({ minimum: 1, default: 1, description: "Offer quantity (default 1)." })
+        ),
+        listingDescription: Type.Optional(
+          Type.String({ description: "Listing description for this offer." })
+        ),
+        marketplaceId: Type.Optional(
+          Type.String({ description: "Marketplace id; defaults to the plugin default." })
+        ),
+        merchantLocationKey: Type.Optional(
+          Type.String({ description: "Merchant location key the item ships from." })
+        ),
+        paymentPolicyId: Type.Optional(
+          Type.String({ description: "Payment policy id (from get_business_policies)." })
+        ),
+        returnPolicyId: Type.Optional(
+          Type.String({ description: "Return policy id (from get_business_policies)." })
+        ),
+        fulfillmentPolicyId: Type.Optional(
+          Type.String({ description: "Fulfillment policy id (from get_business_policies)." })
+        ),
+      }),
+      async execute(params, config) {
+        const marketplaceId =
+          params.marketplaceId ?? config.defaultMarketplaceId ?? "EBAY_US";
+        return runSoftGated(
+          gateConfig(config),
+          {
+            toolName: "ebay_seller_create_offer",
+            action: "create_offer",
+            summary: `Create DRAFT offer for SKU '${params.sku}' at ${params.currency ?? "USD"} ${params.price} (${marketplaceId})`,
+            params: {
+              sku: params.sku,
+              marketplaceId,
+              categoryId: params.categoryId,
+              price: params.price,
+              currency: params.currency,
+              availableQuantity: params.availableQuantity,
+              listingDescription: params.listingDescription,
+              merchantLocationKey: params.merchantLocationKey,
+              paymentPolicyId: params.paymentPolicyId,
+              returnPolicyId: params.returnPolicyId,
+              fulfillmentPolicyId: params.fulfillmentPolicyId,
+            } satisfies OfferInput,
+          },
+          MUTATIONS
+        );
+      },
+    }),
+    tool({
+      name: "ebay_seller_create_shipping_fulfillment",
+      label: "Mark eBay Order Shipped",
+      description:
+        "MARK an eBay order (or specific line items) as shipped by creating a shipping fulfillment, optionally with tracking. Call this — do not narrate — when the operator says they shipped an order or wants to add tracking (e.g. 'mark order X shipped', 'add tracking 1Z... to order Y'). Soft-gated: executes immediately and is audit-logged. Get the orderId and lineItemIds from ebay_seller_get_orders / ebay_seller_get_order.",
+      parameters: Type.Object({
+        orderId: Type.String({ description: "The eBay order id." }),
+        lineItems: Type.Array(
+          Type.Object({
+            lineItemId: Type.String({ description: "Order line item id." }),
+            quantity: Type.Integer({ minimum: 1, description: "Quantity shipped." }),
+          }),
+          { description: "The line items shipped in this fulfillment." }
+        ),
+        trackingNumber: Type.Optional(
+          Type.String({ description: "Carrier tracking number." })
+        ),
+        shippingCarrierCode: Type.Optional(
+          Type.String({ description: "eBay carrier code, e.g. USPS, FedEx, UPS." })
+        ),
+      }),
+      async execute(params, config) {
+        return runSoftGated(
+          gateConfig(config),
+          {
+            toolName: "ebay_seller_create_shipping_fulfillment",
+            action: "create_shipping_fulfillment",
+            summary: `Mark order '${params.orderId}' shipped (${params.lineItems.length} line item(s))${params.trackingNumber ? ` tracking ${params.trackingNumber}` : ""}`,
+            params: {
+              orderId: params.orderId,
+              lineItems: params.lineItems,
+              trackingNumber: params.trackingNumber,
+              shippingCarrierCode: params.shippingCarrierCode,
+            } satisfies ShippingFulfillmentInput,
+          },
+          MUTATIONS
+        );
       },
     }),
     tool({

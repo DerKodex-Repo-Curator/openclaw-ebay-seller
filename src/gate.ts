@@ -255,6 +255,41 @@ async function executeAndLog(
 }
 
 /**
+ * Soft-gated write: always executes immediately and is audit-logged, with no
+ * interactive approval. For low-stakes, reversible writes (draft offers,
+ * inventory records that aren't yet live, attaching shipment info). The
+ * approval step (runGated) is reserved for writes that touch live listings or
+ * money.
+ */
+export async function runSoftGated(
+  config: GateConfig,
+  descriptor: MutationDescriptor,
+  registry: MutationRegistry,
+  now: number = Date.now()
+): Promise<{
+  status: "executed";
+  action: string;
+  gate: "soft";
+  result: unknown;
+  audit_warning?: string;
+}> {
+  const { result, audit_warning } = await executeAndLog(
+    config,
+    descriptor,
+    "soft",
+    registry,
+    now
+  );
+  return {
+    status: "executed",
+    action: descriptor.action,
+    gate: "soft",
+    result,
+    ...(audit_warning ? { audit_warning } : {}),
+  };
+}
+
+/**
  * The entry point write tools call. With `autoApprove === true`, runs the
  * executor immediately and logs it as auto-approved. ANY other value (false,
  * undefined, the string "false", 0, null, …) falls through to staging —

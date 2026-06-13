@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **S5 — soft-gated write tools.** Three writes that execute immediately and are
+  audit-logged (no approval step — they don't touch live listings or money):
+  `ebay_seller_create_or_update_inventory_item` (idempotent PUT — re-sending a
+  SKU replaces it; not a live listing), `ebay_seller_create_offer` (POST,
+  created UNPUBLISHED/draft — returns offerId), and
+  `ebay_seller_create_shipping_fulfillment` (mark order line items shipped, with
+  optional tracking).
+- **`src/api.ts` `sellApiSend`** — authenticated POST/PUT/PATCH/DELETE client:
+  JSON body, Content-Language header, captures eBay's request id for the audit
+  log, surfaces eBay errors. **`src/inventory-write.ts`** + **`src/fulfillment-write.ts`**
+  — the write clients. Executors registered in the gate's `MUTATIONS` registry
+  and dispatched through `runSoftGated` (execute + audit, always).
+- **Tests:** +8 (90 total) — `sellApiSend` (method/body/Content-Language/request-id
+  capture/204/error), inventory-item PUT body assembly + idempotent 204, draft
+  offer POST body + policy grouping, shipping fulfillment body, optional-field
+  omission across all three.
+
 - **S4 — approval gate + ops log + `confirm_pending`.** The safety machinery
   every write tool (S5+) sits behind. `src/gate.ts`: staged pending-action store
   with TTL, single-use redemption, and crash-safe persistence; `runGated()`

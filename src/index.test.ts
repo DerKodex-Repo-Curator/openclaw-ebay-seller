@@ -15,12 +15,12 @@ function collectTools(): ToolDef[] {
   return meta.tools as ToolDef[];
 }
 
-describe("plugin surface (S4 — reads + approval gate)", () => {
+describe("plugin surface (S5 — reads + gate + soft writes)", () => {
   it("has the expected plugin id", () => {
     expect((plugin as { id: string }).id).toBe("tangleclaw-ebay-seller");
   });
 
-  it("registers all read tools plus confirm_pending", () => {
+  it("registers all read, soft-write, and gate tools", () => {
     const names = collectTools()
       .map((t) => t.name)
       .sort();
@@ -29,6 +29,9 @@ describe("plugin surface (S4 — reads + approval gate)", () => {
       "ebay_seller_auth_start",
       "ebay_seller_auth_status",
       "ebay_seller_confirm_pending",
+      "ebay_seller_create_offer",
+      "ebay_seller_create_or_update_inventory_item",
+      "ebay_seller_create_shipping_fulfillment",
       "ebay_seller_get_business_policies",
       "ebay_seller_get_inventory_item",
       "ebay_seller_get_offers",

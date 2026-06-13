@@ -70,6 +70,9 @@
       "ebay_seller_get_orders",
       "ebay_seller_get_order",
       "ebay_seller_get_business_policies",
+      "ebay_seller_create_or_update_inventory_item",
+      "ebay_seller_create_offer",
+      "ebay_seller_create_shipping_fulfillment",
       "ebay_seller_confirm_pending"
     ]
   }
