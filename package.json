@@ -1,0 +1,68 @@
+{
+  "name": "@jason-vaughan/openclaw-ebay-seller",
+  "version": "0.1.0",
+  "description": "eBay seller automation for your OpenClaw agent — connect your own eBay seller account via OAuth, read inventory/offers/orders/business-policies, and draft + publish listings behind an approval gate. Direct REST via authorization_code OAuth (your seller token, stored locally). Hard-gated writes for anything that touches live listings or money.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Jason Vaughan",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jason-Vaughan/openclaw-ebay-seller.git"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "clawhub",
+    "ebay",
+    "ebay-api",
+    "ebay-seller",
+    "ebay-inventory",
+    "ebay-fulfillment",
+    "sell-api",
+    "inventory-api",
+    "listing-automation",
+    "marketplace",
+    "oauth",
+    "oauth2",
+    "authorization-code",
+    "ai-agent",
+    "agent-tools",
+    "llm-tools",
+    "tangleclaw"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "plugin:build": "npm run build && openclaw plugins build --entry ./dist/index.js",
+    "plugin:validate": "npm run build && openclaw plugins validate --entry ./dist/index.js",
+    "test": "vitest run"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "openclaw": ">=2026.5.17"
+  },
+  "dependencies": {
+    "typebox": "^1.1.38"
+  },
+  "devDependencies": {
+    "openclaw": "latest",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "@types/node": "^22.0.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.5.22"
+    },
+    "build": {
+      "openclawVersion": "2026.5.22"
+    }
+  }
+}
