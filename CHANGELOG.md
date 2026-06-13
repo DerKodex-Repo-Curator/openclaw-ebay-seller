@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **S2 — inventory read tools.** Three tools: `ebay_seller_list_inventory_items`
+  (SKU-level product records, paged, empty account → total 0),
+  `ebay_seller_get_inventory_item` (one item by SKU), and
+  `ebay_seller_get_offers` (offers for a SKU — marketplace listing/price/status).
+- **`src/api.ts`** — shared authenticated Sell-API GET client: pulls a valid
+  user token (auto-refresh), builds the URL + query, sets the bearer token and
+  optional marketplace header, surfaces eBay's own error messages verbatim,
+  handles 204. **`src/inventory.ts`** — the three read functions over it.
+- **Tests:** +12 (52 total) — `formatEbayErrors`, URL/query/header construction,
+  204 handling, error surfacing, SKU path-encoding, and each inventory function's
+  request shape, all via injected fetch.
+- **Live-proven:** the auth chain + `/sell/inventory/v1/inventory_item` endpoint
+  were validated against eBay production during S1 (HTTP 200, total 0 on the
+  empty `great_gifts_4_less` account).
+
 - **S1 — OAuth `authorization_code` round-trip.** Three auth tools:
   `ebay_seller_auth_start` (builds the eBay authorize URL with all five Sell
   scopes + a CSRF state), `ebay_seller_auth_callback` (validates state,

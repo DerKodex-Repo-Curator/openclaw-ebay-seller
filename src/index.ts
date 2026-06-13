@@ -6,19 +6,36 @@ import {
   getAuthStatus,
   type SellerAuthConfig,
 } from "./auth.js";
+import {
+  listInventoryItems,
+  getInventoryItem,
+  getOffers,
+} from "./inventory.js";
+import type { SellApiConfig } from "./api.js";
 
-/** Project the plugin config down to the auth layer's config shape. */
-function authConfig(config: {
+interface PluginConfig {
   credentialsPath: string;
   userTokenPath: string;
+  defaultMarketplaceId?: string;
   httpTimeoutMs?: number;
   tokenRefreshSafetyWindowMs?: number;
-}): SellerAuthConfig {
+}
+
+/** Project the plugin config down to the auth layer's config shape. */
+function authConfig(config: PluginConfig): SellerAuthConfig {
   return {
     credentialsPath: config.credentialsPath,
     userTokenPath: config.userTokenPath,
     httpTimeoutMs: config.httpTimeoutMs,
     tokenRefreshSafetyWindowMs: config.tokenRefreshSafetyWindowMs,
+  };
+}
+
+/** Auth config plus the default marketplace, for the Sell API read tools. */
+function apiConfig(config: PluginConfig): SellApiConfig {
+  return {
+    ...authConfig(config),
+    defaultMarketplaceId: config.defaultMarketplaceId,
   };
 }
 
@@ -138,6 +155,92 @@ export default defineToolPlugin({
       parameters: Type.Object({}),
       async execute(_params, config) {
         return getAuthStatus(authConfig(config));
+      },
+    }),
+    tool({
+      name: "ebay_seller_list_inventory_items",
+      label: "List eBay Inventory Items",
+      description:
+        "LIST / SHOW / READ the seller's own eBay inventory items (SKU-level product records). Call this — do not narrate — when the operator asks: list my ebay inventory, what do I have listed, show my SKUs, what items are in my ebay account, how many products do I have. Returns a page of inventory items plus `total`. An empty account returns total 0 (that's success, not an error). Use `limit`/`offset` to page. NOTE: inventory items are the product data; the live-listing/price data lives on their offers — pair with ebay_seller_get_offers for a given SKU.",
+      parameters: Type.Object({
+        limit: Type.Optional(
+          Type.Integer({
+            minimum: 1,
+            maximum: 200,
+            default: 25,
+            description: "Items per page (1-200). Default 25.",
+          })
+        ),
+        offset: Type.Optional(
+          Type.Integer({
+            minimum: 0,
+            default: 0,
+            description: "Pagination offset (default 0).",
+          })
+        ),
+      }),
+      async execute(params, config) {
+        return listInventoryItems(apiConfig(config), {
+          limit: params.limit,
+          offset: params.offset,
+        });
+      },
+    }),
+    tool({
+      name: "ebay_seller_get_inventory_item",
+      label: "Get eBay Inventory Item",
+      description:
+        "READ / VIEW / FETCH one of the seller's inventory items by its SKU. Call this — do not narrate — when the operator asks to see / view / get details on a specific SKU, or references one of their own products by SKU. Returns the full inventory_item record (product details, condition, quantity/availability, package weight/dimensions). Get the SKU from ebay_seller_list_inventory_items. Surfaces eBay's 404 message verbatim if the SKU doesn't exist.",
+      parameters: Type.Object({
+        sku: Type.String({
+          description:
+            "The seller's SKU for the inventory item (the operator's own product identifier).",
+        }),
+      }),
+      async execute(params, config) {
+        return getInventoryItem(apiConfig(config), { sku: params.sku });
+      },
+    }),
+    tool({
+      name: "ebay_seller_get_offers",
+      label: "Get eBay Offers for a SKU",
+      description:
+        "LIST / SHOW / READ the offers attached to one of the seller's SKUs. Call this — do not narrate — when the operator asks: is this SKU listed, what's the offer/price for this item, show the listing for SKU X, what offers do I have for this product, is it published. eBay's offer endpoint is always scoped to a single SKU, so `sku` is required. Each offer carries the marketplace-specific listing data: price, category, listing status (PUBLISHED/UNPUBLISHED), offerId, and listingId when live. Get the SKU from ebay_seller_list_inventory_items.",
+      parameters: Type.Object({
+        sku: Type.String({
+          description: "The SKU whose offers to list (required by eBay).",
+        }),
+        marketplaceId: Type.Optional(
+          Type.String({
+            description:
+              "eBay marketplace id (e.g., EBAY_US, EBAY_GB). Defaults to the plugin's defaultMarketplaceId.",
+          })
+        ),
+        limit: Type.Optional(
+          Type.Integer({
+            minimum: 1,
+            maximum: 100,
+            default: 25,
+            description: "Offers per page (1-100). Default 25.",
+          })
+        ),
+        offset: Type.Optional(
+          Type.Integer({
+            minimum: 0,
+            default: 0,
+            description: "Pagination offset (default 0).",
+          })
+        ),
+      }),
+      async execute(params, config) {
+        const marketplaceId =
+          params.marketplaceId ?? config.defaultMarketplaceId ?? "EBAY_US";
+        return getOffers(apiConfig(config), {
+          sku: params.sku,
+          marketplaceId,
+          limit: params.limit,
+          offset: params.offset,
+        });
       },
     }),
   ],

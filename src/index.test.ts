@@ -15,12 +15,12 @@ function collectTools(): ToolDef[] {
   return meta.tools as ToolDef[];
 }
 
-describe("plugin surface (S1 — auth)", () => {
+describe("plugin surface (S2 — auth + inventory reads)", () => {
   it("has the expected plugin id", () => {
     expect((plugin as { id: string }).id).toBe("tangleclaw-ebay-seller");
   });
 
-  it("registers the three auth tools", () => {
+  it("registers the auth + inventory-read tools", () => {
     const names = collectTools()
       .map((t) => t.name)
       .sort();
@@ -28,6 +28,9 @@ describe("plugin surface (S1 — auth)", () => {
       "ebay_seller_auth_callback",
       "ebay_seller_auth_start",
       "ebay_seller_auth_status",
+      "ebay_seller_get_inventory_item",
+      "ebay_seller_get_offers",
+      "ebay_seller_list_inventory_items",
     ]);
   });
 
